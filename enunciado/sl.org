@@ -1,0 +1,210 @@
+#+TITLE: Trabalho Prático: Compilador para a Linguagem SL em Haskell
+#+AUTHOR: BCC328 - Construção de Compiladores I
+#+DATE: \today
+#+OPTIONS: toc:nil
+#+OPTIONS: date:nil
+
+* Visão Geral
+
+Neste trabalho, você desenvolverá um compilador completo em Haskell para a linguagem de
+programação SL, uma linguagem simples com suporte a funções, registros e arranjos.
+O compilador terá como target WebAssembly (WAT), permitindo a execução de programas em
+ambientes modernos como navegadores web. O trabalho será dividido em 3 etapas
+progressivas, cada uma com entregas específicas, e deverá ser implementado utilizando a
+linguagem Haskell.
+
+* Especificação da Linguagem SL
+
+** Características Principais
+
+A linguagem SL possui tipagem estática, com suporte aos tipos de dados =int=, =float=,
+=string= e =bool=. As estruturas de controle incluem =if=-=else=, =while= e =for=, enquanto as
+estruturas de dados suportam arranjos unidimensionais e registros (=structs=). A linguagem
+permite a definição de funções com parâmetros e retorno. Adicionalmente, a linguagem deve
+prover suporte a polimorfismo paramétrico (generics) e inferência de tipos.
+No que segue, apresentamos alguns programas de exemplo desta linguagem, que devem ser utilizados
+para teste e ajudar no projeto da linguagem.
+
+** Exemplos de Programas em SL
+
+*** Exemplo 1: Cálculo de Fatorial
+
+#+BEGIN_SRC rust
+func factorial(n : int) : int {
+    if (n <= 1) {
+        return 1;
+    } else {
+        return n * factorial(n - 1);
+    }
+}
+
+func main() : int {
+    let result : int = factorial(5);
+    print(result);  // Deve imprimir 120
+    return 0;
+}
+#+END_SRC
+
+*** Exemplo 2: Trabalhando com Registros e Arranjos
+
+#+BEGIN_SRC rust
+struct Person {
+    name : string;
+    age : int;
+    height : float;
+}
+
+func main() : void {
+    // Arranjo de registros
+    let people : People[3];
+    people[0] = Person{"Alice", 25, 1.65};
+    people[1] = Person{"Bob", 30, 1.80};
+    people[2] = Person{"Charlie", 35, 1.75};
+    // Iteração sobre arranjo
+    let i : int = 0;
+    while (i < 3) {
+        print(people[i].name);
+        print(people[i].age);
+        print(people[i].height);
+        i = i + 1;
+    }
+}
+#+END_SRC
+
+*** Exemplo 3: Operações com Arranjos
+
+#+BEGIN_SRC rust
+func reverse(arr : int[], size : int) : int [] {
+    let result : int[] = new int[size];
+    let i : int = 0;
+    while (i < size) {
+        result[i] = arr[size - i - 1];
+        i = i + 1;
+    }
+    return result;
+}
+
+func main() : void {
+    let original : int[5] = [1, 2, 3, 4, 5];
+    let reversed : int[] = reverse(original, 5);
+    // Deve imprimir: 5, 4, 3, 2, 1
+    let j : int = 0;
+    while (j < 5) {
+        print(reversed[j]);
+        j = j + 1;
+    }
+}
+#+END_SRC
+
+*** Exemplo 4: Operações Matemáticas e Booleanas
+
+#+BEGIN_SRC rust
+func calculateBMI(weight : float, height : float) : float {
+    return weight / (height * height);
+}
+
+func isAdult(age : int) : bool {
+    return age >= 18;
+}
+
+func main() : void {
+    let bmi : float = calculateBMI(70.5, 1.75);
+    let adult : bool = isAdult(20);
+    print(bmi);
+    print(adult);
+    if (adult && bmi > 25.0) {
+        print("Adulto com sobrepeso");
+    } else {
+        print("Condição normal");
+    }
+}
+#+END_SRC
+
+*** Exemplo 5: função identidade
+
+#+begin_src rust
+func id(x) {
+    return x;
+}
+#+end_src
+
+*** Exemplo 6: função map
+
+#+begin_src rust
+forall a b . func map (f : (a) -> b, v : a[]) : b[] {
+    let result = new b[v.size];
+    for (i = 0; i < v.size ; i++) {
+      result[i] = f(v[i]);
+    }
+    return result;
+}
+#+end_src
+
+
+* Etapas do Trabalho
+
+** Etapa 1: Análise Léxica e Sintática
+
+*** Data de Entrega: 15/12/2025
+
+Os objetivos desta etapa incluem desenvolver a gramática formal
+da linguagem SL, implementar o analisador léxico
+e o analisador sintático. Para o analisador sintático você
+poderá utilizar a biblioteca =Megaparsec=, de analisadores
+descendentes recursivos ou o gerador de analisadores sintáticos Happy.
+
+Os entregáveis consistem do código Haskell dos analisadores léxico e
+sintático, testes e relatório explicando as decisões de projeto e a
+gramática definida por você.
+
+* Especificações Técnicas
+
+** Ambiente de desenvolvimento
+
+Para desenvolvimento do trabalho prático será disponibilizado um ambiente
+Docker contendo o compilador de Haskell, o gerenciador de projetos Cabal e
+os geradores de analisadores léxico e sintático alex e happy. Trabalhos que
+cuja compilação resulte em erros no ambiente Docker fornecido receberão nota
+**ZERO**.
+
+** Avaliação
+
+- Os trabalhos deversão ser desenvolvidos por grupos de **até dois alunos**.
+
+- **IMPORTANTE:** Não é permitida a alteração dos grupos. Caso um aluno
+  desista da disciplina, o outro aluno deverá desenvolver o trabalho
+  individualmente.
+
+- Em nenhuma hipótese será permitido grupos com uma quantidade maior
+  que **dois alunos**.
+
+- A avaliação será baseada em corretude (40% do total), considerando o funcionamento
+  conforme especificação; qualidade de código (20%), avaliando organização, documentação,
+  testes, relatórios (20%) e apresentação (20%).
+
+* Entrega
+
+- Cada etapa deve ser entregue utilizando a plataforma Github classroom.
+
+- O repositório deverá conter todo o código fonte Haskell e de ferramentas
+  como Alex e Happy,instruções de build usando Cabal, casos de teste automatizados,
+  relatório em LaTeX junto com =makefile= para geração do pdf. Um modelo LaTeX de
+  relatório é fornecido como parte do repositório deste trabalho. A não utilização
+  de LaTeX ou não criação do relatório implicará em **ZERO**.
+
+- Seu compilador deve prover uma interface de linha de comando com as seguintes opções:
+
+   - =--lexer=: executa apenas a análise léxica e imprime os tokens encontrados no arquivo
+                de entrada, juntamente com a sua informação de linha e coluna.
+
+   - =--parser=: executa a análise léxica, sintática e imprime uma representação da árvore de sintaxe
+                 do programa. Para imprimir, de forma legível, a árvore de sintaxe produzida
+                 por seu parser, considere usar a função =drawTree= do módulo =Data.Tree= presente
+                 no pacote =containers=.
+
+   - =--pretty=: Realiza a análise léxica, sintática e converte a árvore de sintaxe produzida pelo
+                 parser em uma versão textual do programa de forma a respeitar as seguintes convenções
+                 de indentação apresentadas nos exemplos deste enunciado. Para implementar essa etapa,
+                 sugere-se o uso do pacote =pretty=. A utilização de instâncias de =Show= geradas
+                 automaticamente pelo compilador de Haskell não serão consideradas opções válidas para
+                 exibição de informação.
