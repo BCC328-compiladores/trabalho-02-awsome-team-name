@@ -1,0 +1,62 @@
+cabal-version:      2.4
+name:               workspace
+version:            0.1.0.0
+synopsis:           SL (Simple Language) Compiler - Stage 1 & 2
+description:        A compiler for the SL language with lexical, syntactic, and semantic analysis
+license:            BSD-3-Clause
+author:             Student
+maintainer:         student@example.com
+build-type:         Simple
+
+common warnings
+    ghc-options: -Wall
+
+library
+    import:           warnings
+    exposed-modules:  SL.AST
+                    , SL.Env
+                    , SL.Lexer
+                    , SL.Parser
+                    , SL.Pretty
+                    , SL.TypeChecker
+    build-depends:    base >= 4.14 && < 5
+                    , megaparsec >= 9.0 && < 10
+                    , parser-combinators >= 1.0 && < 2
+                    , text >= 1.2 && < 3
+                    , containers >= 0.6 && < 1
+                    , prettyprinter >= 1.7 && < 2
+                    , prettyprinter-ansi-terminal >= 1.1 && < 2
+    hs-source-dirs:   src
+    default-language: Haskell2010
+    default-extensions: OverloadedStrings
+                      , DeriveDataTypeable
+                      , DerivingStrategies
+
+executable sl-compiler
+    import:           warnings
+    main-is:          Main.hs
+    build-depends:    base >= 4.14 && < 5
+                    , workspace
+                    , megaparsec >= 9.0 && < 10
+                    , text >= 1.2 && < 3
+                    , containers >= 0.6 && < 1
+                    , prettyprinter >= 1.7 && < 2
+                    , prettyprinter-ansi-terminal >= 1.1 && < 2
+    hs-source-dirs:   app
+    default-language: Haskell2010
+    default-extensions: OverloadedStrings
+
+test-suite workspace-test
+    import:           warnings
+    type:             exitcode-stdio-1.0
+    main-is:          Spec.hs
+    build-depends:    base >= 4.14 && < 5
+                    , workspace
+                    , hspec >= 2.7 && < 3
+                    , megaparsec >= 9.0 && < 10
+                    , text >= 1.2 && < 3
+                    , containers >= 0.6 && < 1
+                    , prettyprinter >= 1.7 && < 2
+    hs-source-dirs:   test
+    default-language: Haskell2010
+    default-extensions: OverloadedStrings
