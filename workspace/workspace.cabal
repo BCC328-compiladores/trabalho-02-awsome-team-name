@@ -15,6 +15,7 @@ library
     import:           warnings
     exposed-modules:  SL.AST
                     , SL.Env
+                    , SL.Interpreter
                     , SL.Lexer
                     , SL.Parser
                     , SL.Pretty

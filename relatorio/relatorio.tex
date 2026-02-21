@@ -9,6 +9,7 @@
 \usepackage{xcolor}
 \usepackage{amsmath}
 \usepackage{amssymb}
+\usepackage{mathpartir}
 
 \geometry{a4paper, left=3cm, right=2cm, top=3cm, bottom=2cm}
 
@@ -36,13 +37,53 @@
     tabsize=2
 }
 
+\lstdefinestyle{haskell}{
+    backgroundcolor=\color{backcolour},
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{blue},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,
+    breaklines=true,
+    captionpos=b,
+    keepspaces=true,
+    numbers=left,
+    numbersep=5pt,
+    showspaces=false,
+    showstringspaces=false,
+    showtabs=false,
+    tabsize=2,
+    morekeywords={module,where,import,data,deriving,instance,class,type,newtype,let,in,case,of,if,then,else,do,return,qualified,as}
+}
+
+\lstdefinestyle{sl}{
+    backgroundcolor=\color{backcolour},
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{blue},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,
+    breaklines=true,
+    captionpos=b,
+    keepspaces=true,
+    numbers=left,
+    numbersep=5pt,
+    showspaces=false,
+    showstringspaces=false,
+    showtabs=false,
+    tabsize=2,
+    morekeywords={func,struct,if,else,while,for,return,let,new,forall,int,float,string,bool,void,true,false,print}
+}
+
 \lstset{style=mystyle}
 
-\title{Relatório de Projeto: Compilador SL}
+\title{Relatório de Projeto: Compilador SL\\Etapa 2 -- Análise Semântica e Interpretador}
 \author{
-    Nome do Aluno \\
-    Matrícula: \\
-    BCC328 - Construção de Compiladores I - DECOM/UFOP
+    Kayo Xavier -- Matrícula: 21.2.4095 \\
+    Pedro Vieira -- Matrícula: 20.2.4008 \\[0.5em]
+    BCC328 -- Construção de Compiladores I -- DECOM/UFOP
 }
 \date{\today}
 
@@ -51,48 +92,531 @@
 \maketitle
 
 \begin{abstract}
+Este relatório descreve a segunda etapa do desenvolvimento do compilador para a linguagem SL (\textit{Simple Language}), implementado em Haskell. Nesta etapa, foram projetados e implementados o analisador semântico e o interpretador da linguagem. O analisador semântico realiza verificações de tipos, resolução de nomes e validação de escopos, enquanto o interpretador executa programas SL por meio de caminhamento na árvore de sintaxe abstrata (AST). O documento apresenta o sistema de tipos formalizado, a semântica operacional de \textit{big-step}, as decisões de projeto e os resultados obtidos nos testes com os programas de exemplo da especificação.
 \end{abstract}
 
 \tableofcontents
 
-\section{Introdução}
+\newpage
 
+%% ================================================================
+\section{Introdução}
+%% ================================================================
+
+A linguagem SL (\textit{Simple Language}) é uma linguagem de programação imperativa com tipagem estática, projetada para fins didáticos no contexto da disciplina BCC328 -- Construção de Compiladores I. A linguagem possui suporte a tipos primitivos (\texttt{int}, \texttt{float}, \texttt{string}, \texttt{bool}), estruturas de controle (\texttt{if-else}, \texttt{while}, \texttt{for}), arranjos unidimensionais, registros (\textit{structs}), funções com parâmetros e retorno, polimorfismo paramétrico (\texttt{forall}) e inferência de tipos.
+
+Na primeira etapa do trabalho, foram implementados o analisador léxico e o analisador sintático utilizando a biblioteca Megaparsec, resultando na construção da árvore de sintaxe abstrata (AST) a partir do código-fonte SL.
+
+Nesta segunda etapa, o objetivo foi implementar duas componentes fundamentais:
+
+\begin{enumerate}
+    \item \textbf{Analisador Semântico}: responsável por verificar a correção semântica dos programas, incluindo compatibilidade de tipos, unicidade de declarações, verificação de chamadas de função e acesso válido a campos de registros e elementos de arranjos.
+    \item \textbf{Interpretador}: responsável por executar programas SL diretamente a partir da AST, implementando a semântica operacional da linguagem.
+\end{enumerate}
+
+O compilador foi desenvolvido inteiramente em Haskell, utilizando o sistema de build Cabal, e está preparado para execução em ambiente Docker conforme especificado pelo professor.
+
+%% ================================================================
 \section{Metodologia}
+%% ================================================================
 
 \subsection{Estrutura sintática de SL}
 
+A gramática de SL, definida na Etapa 1, segue uma estrutura hierárquica composta por declarações de topo (\textit{top-level}), que podem ser definições de funções ou de registros. Cada função possui um nome, uma lista de parâmetros (opcionalmente tipados), um tipo de retorno opcional e um corpo composto por instruções (\textit{statements}). A gramática é processada por um analisador sintático descendente recursivo implementado com Megaparsec e a biblioteca \texttt{parser-combinators} para tratamento de precedência de operadores.
+
+A AST resultante é definida no módulo \texttt{SL.AST} com os seguintes tipos principais:
+
+\begin{itemize}
+    \item \texttt{Program}: lista de declarações de topo (\texttt{TopLevel})
+    \item \texttt{TopLevel}: \texttt{TLFunc} (funções) ou \texttt{TLStruct} (registros)
+    \item \texttt{Stmt}: instruções como \texttt{SLet}, \texttt{SAssign}, \texttt{SIf}, \texttt{SWhile}, \texttt{SFor}, \texttt{SReturn}, \texttt{SBlock}
+    \item \texttt{Expr}: expressões como literais, variáveis, operações binárias/unárias, chamadas de função, acesso a arranjos/campos, construtores de arranjo e registro
+    \item \texttt{Type}: tipos como \texttt{TyInt}, \texttt{TyFloat}, \texttt{TyString}, \texttt{TyBool}, \texttt{TyVoid}, \texttt{TyVar} (variável de tipo), \texttt{TyArray}, \texttt{TyStruct}, \texttt{TyFunc}
+\end{itemize}
+
+%% ----------------------------------------------------------------
 \subsection{Sistema de tipos para SL}
+%% ----------------------------------------------------------------
 
+O sistema de tipos de SL é estático e nominalmente tipado. Definimos formalmente os tipos da linguagem e as regras de tipagem utilizadas pelo analisador semântico.
+
+\subsubsection{Tipos da linguagem}
+
+Os tipos de SL são definidos pela seguinte gramática:
+
+\[
+\tau ::= \texttt{int} \mid \texttt{float} \mid \texttt{string} \mid \texttt{bool} \mid \texttt{void} \mid \alpha \mid \tau[\,] \mid S \mid (\tau_1, \ldots, \tau_n) \to \tau
+\]
+
+\noindent onde $\alpha$ denota uma variável de tipo (utilizada em funções genéricas), $\tau[\,]$ denota um arranjo de elementos do tipo $\tau$, $S$ denota um tipo de registro (struct) definido pelo usuário, e $(\tau_1, \ldots, \tau_n) \to \tau$ denota um tipo funcional.
+
+\subsubsection{Compatibilidade de tipos}
+
+Dois tipos $\tau_1$ e $\tau_2$ são considerados compatíveis ($\tau_1 \sim \tau_2$) se satisfizerem uma das seguintes condições:
+
+\begin{enumerate}
+    \item $\tau_1 = \tau_2$ (igualdade estrutural)
+    \item $\tau_1$ ou $\tau_2$ é uma variável de tipo $\alpha$ (unificação com qualquer tipo)
+    \item $\tau_1, \tau_2 \in \{\texttt{int}, \texttt{float}\}$ (coerção numérica implícita)
+    \item $\tau_1 = \tau'_1[\,]$ e $\tau_2 = \tau'_2[\,]$ com $\tau'_1 \sim \tau'_2$ (compatibilidade de arranjos)
+    \item $\tau_1 = (\sigma_1, \ldots, \sigma_n) \to \rho_1$ e $\tau_2 = (\sigma'_1, \ldots, \sigma'_n) \to \rho_2$ com $\sigma_i \sim \sigma'_i$ para todo $i$ e $\rho_1 \sim \rho_2$ (compatibilidade de tipos funcionais)
+\end{enumerate}
+
+\subsubsection{Regras de tipagem}
+
+As principais regras de tipagem são apresentadas a seguir, usando a notação $\Gamma \vdash e : \tau$ para indicar que no ambiente $\Gamma$, a expressão $e$ possui tipo $\tau$.
+
+\paragraph{Literais.}
+
+\begin{mathpar}
+\inferrule{ }{\Gamma \vdash n : \texttt{int}} \and
+\inferrule{ }{\Gamma \vdash f : \texttt{float}} \and
+\inferrule{ }{\Gamma \vdash s : \texttt{string}} \and
+\inferrule{ }{\Gamma \vdash b : \texttt{bool}}
+\end{mathpar}
+
+\paragraph{Variáveis.}
+
+\begin{mathpar}
+\inferrule{x : \tau \in \Gamma}{\Gamma \vdash x : \tau}
+\end{mathpar}
+
+\paragraph{Operações aritméticas.}
+
+\begin{mathpar}
+\inferrule{\Gamma \vdash e_1 : \tau_1 \\ \Gamma \vdash e_2 : \tau_2 \\ \tau_1, \tau_2 \in \{\texttt{int}, \texttt{float}\} \\ \oplus \in \{+, -, *, /, \%\}}
+          {\Gamma \vdash e_1 \oplus e_2 : \text{wider}(\tau_1, \tau_2)}
+\end{mathpar}
+
+\noindent onde $\text{wider}(\tau_1, \tau_2) = \texttt{float}$ se $\tau_1 = \texttt{float}$ ou $\tau_2 = \texttt{float}$; caso contrário, $\text{wider}(\tau_1, \tau_2) = \texttt{int}$.
+
+\paragraph{Operações de comparação.}
+
+\begin{mathpar}
+\inferrule{\Gamma \vdash e_1 : \tau_1 \\ \Gamma \vdash e_2 : \tau_2 \\ \tau_1, \tau_2 \in \{\texttt{int}, \texttt{float}\} \\ \oplus \in \{<, \leq, >, \geq\}}
+          {\Gamma \vdash e_1 \oplus e_2 : \texttt{bool}}
+\end{mathpar}
+
+\paragraph{Operações de igualdade.}
+
+\begin{mathpar}
+\inferrule{\Gamma \vdash e_1 : \tau_1 \\ \Gamma \vdash e_2 : \tau_2 \\ \tau_1 \sim \tau_2 \\ \oplus \in \{==, !=\}}
+          {\Gamma \vdash e_1 \oplus e_2 : \texttt{bool}}
+\end{mathpar}
+
+\paragraph{Operações lógicas.}
+
+\begin{mathpar}
+\inferrule{\Gamma \vdash e_1 : \texttt{bool} \\ \Gamma \vdash e_2 : \texttt{bool} \\ \oplus \in \{\&\&, ||\}}
+          {\Gamma \vdash e_1 \oplus e_2 : \texttt{bool}}
+\end{mathpar}
+
+\paragraph{Operações unárias.}
+
+\begin{mathpar}
+\inferrule{\Gamma \vdash e : \tau \\ \tau \in \{\texttt{int}, \texttt{float}\}}
+          {\Gamma \vdash -e : \tau}
+\and
+\inferrule{\Gamma \vdash e : \texttt{bool}}
+          {\Gamma \vdash !e : \texttt{bool}}
+\end{mathpar}
+
+\paragraph{Chamada de função.}
+
+\begin{mathpar}
+\inferrule{f : (\tau_1, \ldots, \tau_n) \to \tau_r \in \Gamma \\ \Gamma \vdash a_i : \sigma_i \\ \tau_i \sim \sigma_i \text{ para } 1 \leq i \leq n}
+          {\Gamma \vdash f(a_1, \ldots, a_n) : \tau_r}
+\end{mathpar}
+
+\paragraph{Acesso a arranjo.}
+
+\begin{mathpar}
+\inferrule{\Gamma \vdash e_1 : \tau[\,] \\ \Gamma \vdash e_2 : \texttt{int}}
+          {\Gamma \vdash e_1[e_2] : \tau}
+\end{mathpar}
+
+\paragraph{Acesso a campo de registro.}
+
+\begin{mathpar}
+\inferrule{\Gamma \vdash e : S \\ \text{field}(S, f) = \tau}
+          {\Gamma \vdash e.f : \tau}
+\end{mathpar}
+
+\paragraph{Propriedade \texttt{.size} de arranjos.}
+
+\begin{mathpar}
+\inferrule{\Gamma \vdash e : \tau[\,]}
+          {\Gamma \vdash e.\texttt{size} : \texttt{int}}
+\end{mathpar}
+
+%% ----------------------------------------------------------------
 \subsection{Inferência de tipos para SL}
+%% ----------------------------------------------------------------
 
+A inferência de tipos em SL é utilizada em dois contextos principais:
+
+\begin{enumerate}
+    \item \textbf{Variáveis sem anotação de tipo}: quando uma declaração \texttt{let x = e;} não possui anotação de tipo, o tipo de \texttt{x} é inferido a partir do tipo da expressão \texttt{e}.
+    \item \textbf{Parâmetros de função sem anotação}: quando um parâmetro de função não possui anotação de tipo (como em \texttt{func id(x) \{ return x; \}}), uma variável de tipo fresca $\_t_i$ é gerada e associada ao parâmetro.
+\end{enumerate}
+
+A geração de variáveis de tipo frescas é implementada por um contador monotonicamente crescente no ambiente de checagem. Cada nova variável recebe o nome $\_t_0, \_t_1, \ldots$, garantindo unicidade.
+
+Para funções genéricas declaradas com \texttt{forall}, as variáveis de tipo explícitas (e.g., \texttt{a}, \texttt{b}) são registradas no ambiente como \texttt{TyVar}, permitindo que sejam unificadas com qualquer tipo concreto durante a verificação.
+
+%% ----------------------------------------------------------------
 \subsection{Semântica operacional para SL}
+%% ----------------------------------------------------------------
 
+A semântica operacional de SL é definida no estilo \textit{big-step} (semântica natural), onde a avaliação de uma expressão ou execução de uma instrução produz diretamente o resultado final. A notação utilizada é:
 
+\begin{itemize}
+    \item $\langle e, \sigma \rangle \Downarrow v$ : a expressão $e$ avaliada no estado $\sigma$ produz o valor $v$
+    \item $\langle s, \sigma \rangle \Downarrow \sigma'$ : a instrução $s$ executada no estado $\sigma$ produz um novo estado $\sigma'$
+\end{itemize}
+
+\noindent onde $\sigma$ é um ambiente de execução que mapeia nomes a valores.
+
+\subsubsection{Valores de tempo de execução}
+
+Os valores de tempo de execução são definidos por:
+
+\[
+v ::= n \mid f \mid s \mid b \mid \texttt{void} \mid \langle\texttt{arr}, \text{ref}\rangle \mid \langle\texttt{struct}, S, \text{campos}\rangle \mid \langle\texttt{func}, \text{def}\rangle
+\]
+
+\noindent onde $n$ é um inteiro, $f$ um ponto flutuante, $s$ uma string, $b$ um booleano, $\langle\texttt{arr}, \text{ref}\rangle$ uma referência mutável a um arranjo, e $\langle\texttt{struct}, S, \text{campos}\rangle$ uma referência mutável a um registro.
+
+\subsubsection{Regras para expressões}
+
+\paragraph{Literais.}
+
+\begin{mathpar}
+\inferrule{ }{\langle n, \sigma \rangle \Downarrow n}
+\and
+\inferrule{ }{\langle f, \sigma \rangle \Downarrow f}
+\and
+\inferrule{ }{\langle s, \sigma \rangle \Downarrow s}
+\and
+\inferrule{ }{\langle b, \sigma \rangle \Downarrow b}
+\end{mathpar}
+
+\paragraph{Variável.}
+
+\begin{mathpar}
+\inferrule{\sigma(x) = v}{\langle x, \sigma \rangle \Downarrow v}
+\end{mathpar}
+
+\paragraph{Operação binária.}
+
+\begin{mathpar}
+\inferrule{\langle e_1, \sigma \rangle \Downarrow v_1 \\ \langle e_2, \sigma \rangle \Downarrow v_2 \\ v_1 \oplus v_2 = v}
+          {\langle e_1 \oplus e_2, \sigma \rangle \Downarrow v}
+\end{mathpar}
+
+\paragraph{Chamada de função.}
+
+\begin{mathpar}
+\inferrule{f \mapsto (\overline{p_i}, \text{corpo}) \in \sigma \\ \langle a_i, \sigma \rangle \Downarrow v_i \\ \sigma' = \sigma[p_i \mapsto v_i] \\ \langle \text{corpo}, \sigma' \rangle \Downarrow_{\text{ret}} v}
+          {\langle f(\overline{a_i}), \sigma \rangle \Downarrow v}
+\end{mathpar}
+
+\subsubsection{Regras para instruções}
+
+\paragraph{Declaração de variável (\texttt{let}).}
+
+\begin{mathpar}
+\inferrule{\langle e, \sigma \rangle \Downarrow v}
+          {\langle \texttt{let}\ x\ \texttt{=}\ e, \sigma \rangle \Downarrow \sigma[x \mapsto v]}
+\and
+\inferrule{\tau = \text{tipo anotado} \\ v_0 = \text{default}(\tau)}
+          {\langle \texttt{let}\ x : \tau, \sigma \rangle \Downarrow \sigma[x \mapsto v_0]}
+\end{mathpar}
+
+\paragraph{Atribuição.}
+
+\begin{mathpar}
+\inferrule{\langle e, \sigma \rangle \Downarrow v}
+          {\langle x\ \texttt{=}\ e, \sigma \rangle \Downarrow \sigma[x \mapsto v]}
+\end{mathpar}
+
+\paragraph{Condicional (\texttt{if-else}).}
+
+\begin{mathpar}
+\inferrule{\langle e, \sigma \rangle \Downarrow \texttt{true} \\ \langle s_1, \sigma \rangle \Downarrow \sigma'}
+          {\langle \texttt{if}\ (e)\ s_1\ \texttt{else}\ s_2, \sigma \rangle \Downarrow \sigma'}
+\and
+\inferrule{\langle e, \sigma \rangle \Downarrow \texttt{false} \\ \langle s_2, \sigma \rangle \Downarrow \sigma'}
+          {\langle \texttt{if}\ (e)\ s_1\ \texttt{else}\ s_2, \sigma \rangle \Downarrow \sigma'}
+\end{mathpar}
+
+\paragraph{Laço \texttt{while}.}
+
+\begin{mathpar}
+\inferrule{\langle e, \sigma \rangle \Downarrow \texttt{true} \\ \langle s, \sigma \rangle \Downarrow \sigma' \\ \langle \texttt{while}\ (e)\ s, \sigma' \rangle \Downarrow \sigma''}
+          {\langle \texttt{while}\ (e)\ s, \sigma \rangle \Downarrow \sigma''}
+\and
+\inferrule{\langle e, \sigma \rangle \Downarrow \texttt{false}}
+          {\langle \texttt{while}\ (e)\ s, \sigma \rangle \Downarrow \sigma}
+\end{mathpar}
+
+\paragraph{Retorno.}
+
+\begin{mathpar}
+\inferrule{\langle e, \sigma \rangle \Downarrow v}
+          {\langle \texttt{return}\ e, \sigma \rangle \Downarrow_{\text{ret}} v}
+\end{mathpar}
+
+%% ================================================================
 \section{Arquitetura do Compilador}
+%% ================================================================
 
+O compilador SL é organizado em uma arquitetura modular, com cada fase implementada como um módulo Haskell independente. A estrutura segue o padrão clássico de \textit{pipeline} de compilação:
+
+\begin{center}
+\texttt{Código-fonte} $\xrightarrow{\text{Lexer}}$ \texttt{Tokens} $\xrightarrow{\text{Parser}}$ \texttt{AST} $\xrightarrow{\text{TypeChecker}}$ \texttt{AST validada} $\xrightarrow{\text{Interpreter}}$ \texttt{Execução}
+\end{center}
+
+%% ----------------------------------------------------------------
 \subsection{Análise léxica}
+%% ----------------------------------------------------------------
 
+O analisador léxico é implementado no módulo \texttt{SL.Lexer} utilizando a biblioteca Megaparsec. O lexer converte o código-fonte em uma sequência de \textit{tokens}, cada um acompanhado de informação de posição (linha e coluna).
+
+Os tokens reconhecidos incluem:
+\begin{itemize}
+    \item Literais: inteiros, ponto flutuante, strings e booleanos
+    \item Identificadores e palavras reservadas: \texttt{func}, \texttt{struct}, \texttt{if}, \texttt{else}, \texttt{while}, \texttt{for}, \texttt{return}, \texttt{let}, \texttt{new}, \texttt{forall}, e tipos (\texttt{int}, \texttt{float}, \texttt{string}, \texttt{bool}, \texttt{void})
+    \item Operadores: \texttt{+}, \texttt{-}, \texttt{*}, \texttt{/}, \texttt{\%}, \texttt{==}, \texttt{!=}, \texttt{<}, \texttt{<=}, \texttt{>}, \texttt{>=}, \texttt{\&\&}, \texttt{||}, \texttt{!}
+    \item Pontuação: parênteses, chaves, colchetes, ponto-e-vírgula, vírgula, dois-pontos, ponto, seta (\texttt{->})
+\end{itemize}
+
+O lexer também trata comentários de linha (\texttt{//}) e de bloco (\texttt{/* */}).
+
+%% ----------------------------------------------------------------
 \subsection{Análise sintática}
+%% ----------------------------------------------------------------
 
+O analisador sintático é implementado no módulo \texttt{SL.Parser}, também utilizando Megaparsec. O parser é um analisador descendente recursivo que constrói a AST diretamente.
+
+A precedência de operadores é tratada pela função \texttt{makeExprParser} da biblioteca \texttt{parser-combinators}, com a seguinte tabela de precedência (da mais alta para a mais baixa):
+
+\begin{enumerate}
+    \item Operadores unários: \texttt{-} (negação), \texttt{!} (negação lógica)
+    \item Multiplicativos: \texttt{*}, \texttt{/}, \texttt{\%}
+    \item Aditivos: \texttt{+}, \texttt{-}
+    \item Comparação: \texttt{<=}, \texttt{>=}, \texttt{<}, \texttt{>}
+    \item Igualdade: \texttt{==}, \texttt{!=}
+    \item E lógico: \texttt{\&\&}
+    \item Ou lógico: \texttt{||}
+\end{enumerate}
+
+Expressões pós-fixas (acesso a arranjo \texttt{[i]}, acesso a campo \texttt{.field} e chamada de função \texttt{(args)}) são tratadas como operações de \textit{postfix} aplicadas ao termo base.
+
+%% ----------------------------------------------------------------
 \subsection{Árvore de sintaxe abstrata}
+%% ----------------------------------------------------------------
 
+A AST é definida no módulo \texttt{SL.AST} utilizando tipos algébricos de Haskell. As principais decisões de projeto incluem:
+
+\begin{itemize}
+    \item \textbf{Tipos opcionais em parâmetros}: \texttt{FuncParam} possui \texttt{paramType :: Maybe Type}, permitindo que parâmetros sem anotação tenham seu tipo inferido.
+    \item \textbf{Tipos de retorno opcionais}: \texttt{funcRetType :: Maybe Type} em \texttt{TLFunc} permite inferência do tipo de retorno.
+    \item \textbf{Variáveis de tipo genérico}: \texttt{funcTypeVars :: [TypeVar]} armazena as variáveis de tipo declaradas com \texttt{forall}.
+    \item \textbf{Tipo funcional}: \texttt{TyFunc [Type] Type} representa tipos de funções como \texttt{(a) -> b}, suportando funções de alta ordem.
+    \item \textbf{Tamanho opcional em arranjos}: \texttt{TyArray Type (Maybe Expr)} permite tanto \texttt{int[]} quanto \texttt{int[5]}.
+\end{itemize}
+
+%% ----------------------------------------------------------------
 \subsection{Análise semântica}
+%% ----------------------------------------------------------------
 
-\subsection{Geração de código}
+O analisador semântico é implementado nos módulos \texttt{SL.TypeChecker} e \texttt{SL.Env}. A verificação é realizada em duas passadas sobre a AST:
 
+\paragraph{Passada 1 -- Registro de declarações:} Todas as funções e structs são registradas no ambiente global antes de verificar os corpos. Isso permite referências mútuas entre funções e o uso de structs antes de suas definições.
+
+\paragraph{Passada 2 -- Verificação de corpos:} Cada corpo de função é verificado quanto a:
+
+\begin{itemize}
+    \item \textbf{Resolução de nomes}: verifica se variáveis e funções referenciadas estão declaradas no escopo visível.
+    \item \textbf{Compatibilidade de tipos}: valida operações aritméticas, lógicas, de comparação e de igualdade conforme as regras de tipagem.
+    \item \textbf{Declaração única no escopo}: impede a redeclaração de variáveis no mesmo escopo utilizando \texttt{lookupVarCurrentScope}.
+    \item \textbf{Verificação de chamadas de função}: confere o número e tipos dos argumentos contra a assinatura registrada.
+    \item \textbf{Acesso a campos}: valida que acessos \texttt{e.field} referem-se a campos existentes do struct correspondente.
+    \item \textbf{Indexação de arranjos}: verifica que o operando é um arranjo e que o índice é do tipo \texttt{int}.
+    \item \textbf{Tipos de retorno}: valida que instruções \texttt{return} são compatíveis com o tipo de retorno declarado.
+\end{itemize}
+
+O ambiente de verificação (\texttt{SL.Env}) utiliza uma pilha de escopos (lista de \texttt{Map Text Type}) para variáveis, com mapas globais para funções e structs. Erros semânticos são acumulados (não interrompem a verificação), permitindo reportar todos os erros de uma só vez.
+
+\paragraph{Suporte a funções de alta ordem.} Para chamadas como \texttt{f(v[i])} onde \texttt{f} é um parâmetro de função com tipo \texttt{(a) -> b}, o verificador consulta o ambiente de variáveis caso a função não seja encontrada no registro global, tratando variáveis do tipo \texttt{TyFunc} como funções invocáveis.
+
+%% ----------------------------------------------------------------
+\subsection{Interpretador}
+%% ----------------------------------------------------------------
+
+O interpretador é implementado no módulo \texttt{SL.Interpreter} como um \textit{tree-walking interpreter} que avalia a AST diretamente na mônada \texttt{IO} de Haskell. As principais decisões de projeto são:
+
+\paragraph{Valores de tempo de execução.} Os valores são representados pelo tipo algébrico \texttt{Value}:
+
+\begin{lstlisting}[style=haskell]
+data Value
+    = VInt Integer
+    | VFloat Double
+    | VString Text
+    | VBool Bool
+    | VArray (IORef [IORef Value])
+    | VStruct Text (IORef (Map Text (IORef Value)))
+    | VFunc FuncDef
+    | VVoid
+\end{lstlisting}
+
+\paragraph{Mutabilidade via \texttt{IORef}.} Arranjos e registros são representados usando \texttt{IORef} (referências mutáveis), permitindo que atribuições como \texttt{arr[i] = v} e \texttt{person.name = "Bob"} modifiquem os valores in-place, conforme esperado em uma linguagem imperativa.
+
+\paragraph{Ambiente de execução.} O ambiente de tempo de execução utiliza uma pilha de escopos similar ao analisador semântico, porém mapeando nomes a \texttt{IORef Value} em vez de tipos:
+
+\begin{lstlisting}[style=haskell]
+data Env = Env
+    { envScopes     :: [Map Text (IORef Value)]
+    , envGlobals    :: IORef (Map Text FuncDef)
+    , envStructDefs :: Map Text StructDefRT
+    }
+\end{lstlisting}
+
+\paragraph{Implementação de \texttt{return}.} Instruções \texttt{return} são implementadas utilizando o mecanismo de exceções de Haskell (\texttt{throwIO}/\texttt{catch}). Quando um \texttt{return e} é executado, uma exceção \texttt{ReturnException v} é lançada e capturada pelo \texttt{callFunction} que invocou a função, extraindo o valor de retorno.
+
+\paragraph{Inicialização padrão de variáveis.} Declarações como \texttt{let people : Person[3];} (sem inicializador) criam valores padrão baseados no tipo anotado: \texttt{0} para \texttt{int}, \texttt{0.0} para \texttt{float}, \texttt{""} para \texttt{string}, \texttt{false} para \texttt{bool}, e arranjos pré-alocados com o tamanho especificado para tipos de arranjo.
+
+\paragraph{Execução em três passadas.}
+\begin{enumerate}
+    \item \textbf{Registro de structs}: todas as definições de struct são coletadas no ambiente.
+    \item \textbf{Registro de funções}: todas as definições de função são registradas como \texttt{FuncDef} no mapa global.
+    \item \textbf{Chamada de \texttt{main}}: a função \texttt{main} é localizada e invocada com argumentos vazios.
+\end{enumerate}
+
+\paragraph{Função \texttt{print} embutida.} A função \texttt{print} é tratada como uma função \textit{built-in} que aceita qualquer número de argumentos e imprime cada valor em uma linha separada, convertendo para sua representação textual.
+
+%% ================================================================
 \section{Resultados e Discussão}
+%% ================================================================
 
 \subsection{Instruções de Uso}
 
+O compilador pode ser compilado e executado utilizando Cabal dentro do ambiente Docker fornecido:
 
+\begin{lstlisting}[language=bash,style=mystyle]
+# Compilar o projeto
+cabal build
+
+# Executar um programa SL
+cabal run sl-compiler -- --interpret programa.sl
+
+# Modos disponiveis
+cabal run sl-compiler -- --lexer programa.sl      # tokens
+cabal run sl-compiler -- --parser programa.sl     # AST
+cabal run sl-compiler -- --pretty programa.sl     # codigo reconstruido
+cabal run sl-compiler -- --typecheck programa.sl  # analise semantica
+cabal run sl-compiler -- --interpret programa.sl  # execucao
+cabal run sl-compiler -- --run programa.sl        # alias para interpret
+\end{lstlisting}
+
+Para iniciar o ambiente Docker:
+
+\begin{lstlisting}[language=bash,style=mystyle]
+docker run -it --rm -v ./workspace:/workspace \
+    -w /workspace trabalho-02-awsome-team-name-sl bash
+\end{lstlisting}
+
+%% ----------------------------------------------------------------
 \subsection{Testes Realizados}
+%% ----------------------------------------------------------------
 
+O projeto conta com 144 testes automatizados utilizando a biblioteca HSpec, organizados nas seguintes categorias:
 
+\begin{table}[h!]
+\centering
+\begin{tabular}{|l|c|}
+\hline
+\textbf{Categoria} & \textbf{Quantidade} \\
+\hline
+Lexer & 8 \\
+Parser & 22 \\
+Pretty Printer & 6 \\
+Testes Negativos (sintático) & 5 \\
+Testes de Integração (sintático) & 8 \\
+TypeChecker -- Programas Válidos & 24 \\
+TypeChecker -- Programas Inválidos & 21 \\
+TypeChecker -- Inferência & 8 \\
+TypeChecker -- Integração & 8 \\
+Interpreter -- Básico & 9 \\
+Interpreter -- Fluxo de Controle & 5 \\
+Interpreter -- Funções & 4 \\
+Interpreter -- Estruturas de Dados & 5 \\
+Interpreter -- Integração & 4 \\
+Interpreter -- Erros de Execução & 5 \\
+\hline
+\textbf{Total} & \textbf{144} \\
+\hline
+\end{tabular}
+\caption{Distribuição dos testes automatizados por categoria.}
+\end{table}
+
+\paragraph{Exemplos da especificação.} Todos os programas de exemplo fornecidos na especificação foram testados com sucesso:
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{Exemplo} & \textbf{Modo} & \textbf{Saída} \\
+\hline
+1 -- Fatorial & \texttt{--interpret} & \texttt{120} \\
+2 -- Registros e Arranjos & \texttt{--interpret} & Alice/25/1.65, Bob/30/1.8, Charlie/35/1.75 \\
+3 -- Operações com Arranjos & \texttt{--interpret} & \texttt{5, 4, 3, 2, 1} \\
+4 -- Operações Matemáticas & \texttt{--interpret} & \texttt{23.02..., true, Condicao normal} \\
+5 -- Função Identidade & \texttt{--typecheck} & Passa (sem \texttt{main}) \\
+6 -- Função \texttt{map} Genérica & \texttt{--typecheck} & Passa (sem \texttt{main}) \\
+\hline
+\end{tabular}
+\caption{Resultados da execução dos exemplos da especificação.}
+\end{table}
+
+Para executar todos os testes:
+
+\begin{lstlisting}[language=bash,style=mystyle]
+cabal test
+\end{lstlisting}
+
+%% ----------------------------------------------------------------
 \subsection{Limitações}
+%% ----------------------------------------------------------------
 
+As principais limitações conhecidas da implementação atual são:
+
+\begin{enumerate}
+    \item \textbf{Inferência de tipos limitada}: a inferência de tipos é local (baseada em expressões de inicialização), sem unificação global ao estilo Hindley-Milner. Variáveis de tipo genérico são tratadas como compatíveis com qualquer tipo, mas não há propagação completa de restrições.
+
+    \item \textbf{Ausência de geração de código}: conforme planejado, a geração de código WebAssembly será implementada na Etapa 3.
+
+    \item \textbf{Sem otimizações}: o interpretador avalia expressões por caminhamento direto na AST, sem otimizações como \textit{constant folding} ou eliminação de código morto.
+
+    \item \textbf{Mensagens de erro sem posição precisa}: embora o analisador semântico acumule erros, as posições de linha e coluna não são propagadas desde a AST em todos os casos.
+
+    \item \textbf{Exemplos 5 e 6 apenas verificáveis}: os exemplos 5 (identidade) e 6 (map genérico) não possuem função \texttt{main}, logo não são executáveis pelo interpretador, apenas verificáveis pelo \textit{type checker}.
+\end{enumerate}
+
+%% ================================================================
 \section{Conclusão}
+%% ================================================================
 
+Nesta segunda etapa do trabalho, implementamos com sucesso o analisador semântico e o interpretador para a linguagem SL. O analisador semântico realiza todas as verificações solicitadas na especificação: compatibilidade de tipos em operações, declaração única de identificadores no mesmo escopo, verificação de chamadas de função com número e tipos corretos de argumentos, e acesso válido a campos de registros e elementos de arranjos.
+
+O interpretador implementa a semântica operacional de SL por meio de caminhamento na AST, suportando todas as construções da linguagem: funções (incluindo recursão), registros mutáveis, arranjos mutáveis, estruturas de controle e a função embutida \texttt{print}. A utilização de \texttt{IORef} para representar valores mutáveis mostrou-se uma decisão eficaz, permitindo a semântica de referência necessária para atribuições em arranjos e campos de registros.
+
+Todos os exemplos fornecidos na especificação foram executados com os resultados esperados, e a suíte de 144 testes automatizados valida o comportamento correto das diversas componentes. O projeto está preparado para a terceira etapa, que envolverá a implementação da inferência de tipos completa e a geração de código WebAssembly.
+
+%% ================================================================
 \section{Referências}
+%% ================================================================
 
 \begin{thebibliography}{9}
 \bibitem{hutton2016}
@@ -103,6 +627,12 @@ Appel, A. W. (1998). \emph{Modern Compiler Implementation in ML}. Cambridge Univ
 
 \bibitem{webassembly2023}
 WebAssembly Community Group. (2023). \emph{WebAssembly Specification}.
+
+\bibitem{megaparsec}
+Kireev, M. (2023). \emph{Megaparsec: Industrial-strength monadic parser combinator library}. Disponível em: \url{https://hackage.haskell.org/package/megaparsec}.
+
+\bibitem{pierce2002}
+Pierce, B. C. (2002). \emph{Types and Programming Languages}. MIT Press.
 \end{thebibliography}
 
 \end{document}

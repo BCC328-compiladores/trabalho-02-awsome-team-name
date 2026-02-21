@@ -12,6 +12,7 @@ module SL.Env
       -- * Environment operations
     , emptyEnv
     , lookupVar
+    , lookupVarCurrentScope
     , insertVar
     , lookupFunc
     , insertFunc
@@ -86,6 +87,13 @@ lookupVar name env = go (envVarScopes env)
     go (s:ss) = case Map.lookup name s of
         Just ty -> Just ty
         Nothing -> go ss
+
+-- | Look up a variable only in the current (innermost) scope
+lookupVarCurrentScope :: Text -> Env -> Maybe Type
+lookupVarCurrentScope name env =
+    case envVarScopes env of
+        []    -> Nothing
+        (s:_) -> Map.lookup name s
 
 -- | Insert a variable into the current (innermost) scope
 insertVar :: Text -> Type -> Env -> Env

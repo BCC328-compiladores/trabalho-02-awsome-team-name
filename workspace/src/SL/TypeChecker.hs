@@ -170,23 +170,27 @@ checkStmt (SExpr expr) st =
 
 -- Let binding
 checkStmt (SLet name mty mval) st =
-    case (mty, mval) of
+    -- Check for duplicate declaration in the current scope
+    let st0 = case lookupVarCurrentScope name (tcEnv st) of
+            Just _  -> addError' ("Variable '" <> name <> "' already declared in this scope") st
+            Nothing -> st
+    in case (mty, mval) of
         -- let x : T = e;  → check e : T
         (Just ty, Just val) ->
-            let (valTy, st1) = inferExpr val st
+            let (valTy, st1) = inferExpr val st0
                 st2 = checkAssignable ty valTy ("let '" <> name <> "'") st1
             in modifyEnv (insertVar name ty) st2
         -- let x : T;
         (Just ty, Nothing) ->
-            modifyEnv (insertVar name ty) st
+            modifyEnv (insertVar name ty) st0
         -- let x = e;  → infer type from e
         (Nothing, Just val) ->
-            let (valTy, st1) = inferExpr val st
+            let (valTy, st1) = inferExpr val st0
             in modifyEnv (insertVar name valTy) st1
         -- let x;  → no type, no value (assign a fresh type variable)
         (Nothing, Nothing) ->
-            let (tv, env') = freshTyVar (tcEnv st)
-            in st { tcEnv = insertVar name tv env' }
+            let (tv, env') = freshTyVar (tcEnv st0)
+            in st0 { tcEnv = insertVar name tv env' }
 
 -- Assignment: lhs = rhs
 checkStmt (SAssign lhs rhs) st =
@@ -286,9 +290,6 @@ inferExpr (ECall name args) st =
         then let st1 = foldl' (\s a -> snd (inferExpr a s)) st0 args
              in (TyVoid, st1)
         else case lookupFunc name (tcEnv st0) of
-            Nothing ->
-                let st1 = foldl' (\s a -> snd (inferExpr a s)) st0 args
-                in (TyVoid, addError' ("Undefined function '" <> name <> "'") st1)
             Just sig ->
                 let (argTypes, st1) = inferExprs args st0
                     expectedLen = length (fsParamTypes sig)
@@ -300,6 +301,28 @@ inferExpr (ECall name args) st =
                           else checkArgTypes name (fsParamTypes sig) argTypes st1
                     retTy = fromMaybe TyVoid (fsRetType sig)
                 in (retTy, st2)
+            Nothing ->
+                -- Check if it's a variable holding a function type (e.g. higher-order parameter)
+                case lookupVar name (tcEnv st0) of
+                    Just (TyFunc paramTys retTy) ->
+                        let (argTypes, st1) = inferExprs args st0
+                            expectedLen = length paramTys
+                            actualLen   = length args
+                            st2 = if expectedLen /= actualLen
+                                  then addError' ("Function '" <> name <> "' expects "
+                                                 <> T.pack (show expectedLen) <> " arguments but got "
+                                                 <> T.pack (show actualLen)) st1
+                                  else foldl' (\s (expected, actual) ->
+                                      checkAssignable expected actual ("argument of '" <> name <> "'") s)
+                                      st1 (zip paramTys argTypes)
+                        in (retTy, st2)
+                    Just (TyVar _) ->
+                        -- Type variable (generic), accept any call
+                        let (_, st1) = inferExprs args st0
+                        in (TyVar "_call_result", st1)
+                    _ ->
+                        let st1 = foldl' (\s a -> snd (inferExpr a s)) st0 args
+                        in (TyVoid, addError' ("Undefined function '" <> name <> "'") st1)
 
 -- Array indexing: arr[i]
 inferExpr (EIndex arr idx) st =
@@ -488,7 +511,7 @@ checkExpectedType expected actual msg st
 -- | Check function call argument types
 checkArgTypes :: Text -> [Maybe Type] -> [Type] -> TCState -> TCState
 checkArgTypes funcName params argTypes st =
-    let pairs = zip3 [1..] params argTypes
+    let pairs = zip3' [1..] params argTypes
     in foldl' (\s (i, mExpected, actual) ->
         case mExpected of
             Nothing -> s  -- parameter type not annotated, accept anything
@@ -496,9 +519,9 @@ checkArgTypes funcName params argTypes st =
                 ("argument " <> T.pack (show (i :: Int)) <> " of '" <> funcName <> "'") s
         ) st pairs
 
-zip3 :: [a] -> [b] -> [c] -> [(a, b, c)]
-zip3 (a:as) (b:bs) (c:cs) = (a, b, c) : zip3 as bs cs
-zip3 _ _ _ = []
+zip3' :: [a] -> [b] -> [c] -> [(a, b, c)]
+zip3' (a:as) (b:bs) (c:cs) = (a, b, c) : zip3' as bs cs
+zip3' _ _ _ = []
 
 -- | Are two types compatible?
 typesCompatible :: Type -> Type -> Bool

@@ -19,6 +19,7 @@ import SL.Parser (runParser, programToTree)
 import SL.Pretty (renderProgram)
 import SL.TypeChecker (typeCheck, TCResult(..))
 import SL.Env (prettyError)
+import SL.Interpreter (interpret, prettyRuntimeError)
 
 -- | Main entry point
 main :: IO ()
@@ -39,6 +40,7 @@ data Mode
     | ModeParser     -- ^ --parser: Print AST tree
     | ModePretty     -- ^ --pretty: Print reconstructed source
     | ModeTypeCheck  -- ^ --typecheck: Run semantic analysis
+    | ModeInterpret  -- ^ --interpret: Run the program
     deriving (Show, Eq)
 
 -- | Parse command line arguments
@@ -48,6 +50,8 @@ parseArgs args = case args of
     ["--parser", file]     -> Right (ModeParser, file)
     ["--pretty", file]     -> Right (ModePretty, file)
     ["--typecheck", file]  -> Right (ModeTypeCheck, file)
+    ["--interpret", file]  -> Right (ModeInterpret, file)
+    ["--run", file]        -> Right (ModeInterpret, file)
     [file]                 -> Right (ModeParser, file)  -- default to parser
     []                     -> Left "No input file specified"
     _                      -> Left "Invalid arguments"
@@ -62,11 +66,14 @@ printUsage = do
     putStrLn "  --parser     Print the AST as a tree (default)"
     putStrLn "  --pretty     Print reconstructed source code"
     putStrLn "  --typecheck  Run semantic analysis and type checking"
+    putStrLn "  --interpret  Parse, type-check, and execute the program"
+    putStrLn "  --run        Alias for --interpret"
     putStrLn ""
     putStrLn "Examples:"
     putStrLn "  sl-compiler --lexer  input.sl"
     putStrLn "  sl-compiler --parser input.sl"
     putStrLn "  sl-compiler --pretty input.sl"
+    putStrLn "  sl-compiler --interpret input.sl"
 
 -- | Run the compiler in the specified mode
 runMode :: Mode -> FilePath -> Text -> IO ()
@@ -116,6 +123,30 @@ runMode ModeTypeCheck filePath content = do
                     putStrLn (replicate 60 '-')
                     mapM_ printFuncType (Data.Map.Strict.toList (tcFuncTypes result))
                     exitSuccess
+                errs -> do
+                    hPutStrLn stderr $ "Found " ++ show (length errs) ++ " semantic error(s):"
+                    hPutStrLn stderr (replicate 60 '-')
+                    mapM_ (hPutStrLn stderr . prettyError) errs
+                    exitFailure
+
+runMode ModeInterpret filePath content = do
+    -- Step 1: Parse
+    case runParser filePath content of
+        Left err -> do
+            hPutStrLn stderr $ errorBundlePretty err
+            exitFailure
+        Right program -> do
+            -- Step 2: Type check
+            let tcResult = typeCheck program
+            case tcErrors tcResult of
+                [] -> do
+                    -- Step 3: Interpret
+                    result <- interpret program
+                    case result of
+                        Right _ -> exitSuccess
+                        Left err -> do
+                            hPutStrLn stderr $ prettyRuntimeError err
+                            exitFailure
                 errs -> do
                     hPutStrLn stderr $ "Found " ++ show (length errs) ++ " semantic error(s):"
                     hPutStrLn stderr (replicate 60 '-')

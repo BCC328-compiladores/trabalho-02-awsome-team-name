@@ -10,12 +10,16 @@ import Text.Megaparsec (errorBundlePretty)
 import Data.Either (isRight, isLeft)
 import qualified Data.Map.Strict as Map
 
+import System.IO (hFlush, stdout)
+import Data.IORef
+
 import SL.AST
 import SL.Lexer
 import SL.Parser
 import SL.Pretty
 import SL.TypeChecker
 import SL.Env
+import SL.Interpreter
 
 main :: IO ()
 main = hspec $ do
@@ -46,6 +50,24 @@ main = hspec $ do
 
     describe "TypeChecker - Integration" $ do
         typeCheckerIntegrationTests
+
+    describe "Interpreter - Basic" $ do
+        interpreterBasicTests
+
+    describe "Interpreter - Control Flow" $ do
+        interpreterControlFlowTests
+
+    describe "Interpreter - Functions" $ do
+        interpreterFunctionTests
+
+    describe "Interpreter - Data Structures" $ do
+        interpreterDataStructureTests
+
+    describe "Interpreter - Integration" $ do
+        interpreterIntegrationTests
+
+    describe "Interpreter - Runtime Errors" $ do
+        interpreterErrorTests
 
 -- | Lexer tests
 lexerTests :: Spec
@@ -714,6 +736,16 @@ typeCheckerNegativeTests = do
             "func test() : void { let arr : int[] = new int[\"ten\"]; }"
             "new array size must be int"
 
+    it "rejects duplicate variable declaration in same scope" $ do
+        shouldFailWith
+            (T.unlines
+                [ "func test() : void {"
+                , "    let x : int = 5;"
+                , "    let x : int = 10;"
+                , "}"
+                ])
+            "already declared"
+
 -- ============================================================
 -- Type Checker: Inference tests
 -- ============================================================
@@ -877,3 +909,339 @@ typeCheckerIntegrationTests = do
                 , "}"
                 ]
         length (tcErrors result) `shouldSatisfy` (>= 2)
+
+-- ============================================================
+-- Interpreter test helpers
+-- ============================================================
+
+-- | Parse and interpret source code, returning Either RuntimeError Value
+interpretSrc :: T.Text -> IO (Either RuntimeError Value)
+interpretSrc src =
+    case runParser "<test>" src of
+        Left err -> error $ "Parse error in test: " ++ errorBundlePretty err
+        Right prog -> interpret prog
+
+-- | Assert that source code runs without error
+shouldRunOk :: T.Text -> Expectation
+shouldRunOk src = do
+    result <- interpretSrc src
+    case result of
+        Right _ -> return ()
+        Left err -> expectationFailure $ prettyRuntimeError err
+
+-- | Assert that source code produces a runtime error
+shouldRunError :: T.Text -> T.Text -> Expectation
+shouldRunError src substr = do
+    result <- interpretSrc src
+    case result of
+        Left err ->
+            if T.isInfixOf substr (rteMessage err)
+            then return ()
+            else expectationFailure $ "Expected error containing '"
+                   ++ T.unpack substr ++ "', got: " ++ prettyRuntimeError err
+        Right _ -> expectationFailure "Expected runtime error, but program succeeded"
+
+-- ============================================================
+-- Interpreter: Basic tests
+-- ============================================================
+
+interpreterBasicTests :: Spec
+interpreterBasicTests = do
+    it "runs a simple main function" $ do
+        shouldRunOk "func main() : int { return 0; }"
+
+    it "runs main returning void" $ do
+        shouldRunOk "func main() : void { return; }"
+
+    it "evaluates integer arithmetic" $ do
+        shouldRunOk $ T.unlines
+            [ "func main() : void {"
+            , "    let x : int = 2 + 3 * 4;"
+            , "    print(x);"
+            , "}"
+            ]
+
+    it "evaluates float arithmetic" $ do
+        shouldRunOk $ T.unlines
+            [ "func main() : void {"
+            , "    let x : float = 1.5 + 2.5;"
+            , "    print(x);"
+            , "}"
+            ]
+
+    it "evaluates boolean operations" $ do
+        shouldRunOk $ T.unlines
+            [ "func main() : void {"
+            , "    let a : bool = true && false;"
+            , "    let b : bool = true || false;"
+            , "    let c : bool = !true;"
+            , "    print(a);"
+            , "    print(b);"
+            , "    print(c);"
+            , "}"
+            ]
+
+    it "evaluates comparison operators" $ do
+        shouldRunOk $ T.unlines
+            [ "func main() : void {"
+            , "    print(1 < 2);"
+            , "    print(3 >= 3);"
+            , "    print(5 == 5);"
+            , "    print(1 != 2);"
+            , "}"
+            ]
+
+    it "evaluates unary negation" $ do
+        shouldRunOk $ T.unlines
+            [ "func main() : void {"
+            , "    let x : int = -5;"
+            , "    print(x);"
+            , "}"
+            ]
+
+    it "evaluates string literals" $ do
+        shouldRunOk $ T.unlines
+            [ "func main() : void {"
+            , "    let s : string = \"Hello World\";"
+            , "    print(s);"
+            , "}"
+            ]
+
+    it "evaluates modulo" $ do
+        shouldRunOk $ T.unlines
+            [ "func main() : void {"
+            , "    let x : int = 10 % 3;"
+            , "    print(x);"
+            , "}"
+            ]
+
+-- ============================================================
+-- Interpreter: Control flow tests
+-- ============================================================
+
+interpreterControlFlowTests :: Spec
+interpreterControlFlowTests = do
+    it "executes if-true branch" $ do
+        shouldRunOk $ T.unlines
+            [ "func main() : void {"
+            , "    if (true) { print(1); } else { print(2); }"
+            , "}"
+            ]
+
+    it "executes if-false (else) branch" $ do
+        shouldRunOk $ T.unlines
+            [ "func main() : void {"
+            , "    if (false) { print(1); } else { print(2); }"
+            , "}"
+            ]
+
+    it "executes while loop" $ do
+        shouldRunOk $ T.unlines
+            [ "func main() : void {"
+            , "    let i : int = 0;"
+            , "    while (i < 5) {"
+            , "        print(i);"
+            , "        i = i + 1;"
+            , "    }"
+            , "}"
+            ]
+
+    it "executes for loop" $ do
+        shouldRunOk $ T.unlines
+            [ "func main() : void {"
+            , "    for (i = 0; i < 5; i + 1) {"
+            , "        print(i);"
+            , "    }"
+            , "}"
+            ]
+
+    it "handles nested if-else" $ do
+        shouldRunOk $ T.unlines
+            [ "func main() : void {"
+            , "    let x : int = 10;"
+            , "    if (x > 5) {"
+            , "        if (x > 15) { print(1); } else { print(2); }"
+            , "    } else {"
+            , "        print(3);"
+            , "    }"
+            , "}"
+            ]
+
+-- ============================================================
+-- Interpreter: Function tests
+-- ============================================================
+
+interpreterFunctionTests :: Spec
+interpreterFunctionTests = do
+    it "calls a simple function" $ do
+        shouldRunOk $ T.unlines
+            [ "func double(x : int) : int { return x * 2; }"
+            , "func main() : void {"
+            , "    let result : int = double(5);"
+            , "    print(result);"
+            , "}"
+            ]
+
+    it "supports recursive functions" $ do
+        shouldRunOk $ T.unlines
+            [ "func factorial(n : int) : int {"
+            , "    if (n <= 1) { return 1; }"
+            , "    else { return n * factorial(n - 1); }"
+            , "}"
+            , "func main() : void {"
+            , "    print(factorial(5));"
+            , "}"
+            ]
+
+    it "supports multiple parameters" $ do
+        shouldRunOk $ T.unlines
+            [ "func add(a : int, b : int) : int { return a + b; }"
+            , "func main() : void { print(add(3, 4)); }"
+            ]
+
+    it "supports function calling function" $ do
+        shouldRunOk $ T.unlines
+            [ "func square(x : int) : int { return x * x; }"
+            , "func sumOfSquares(a : int, b : int) : int {"
+            , "    return square(a) + square(b);"
+            , "}"
+            , "func main() : void { print(sumOfSquares(3, 4)); }"
+            ]
+
+-- ============================================================
+-- Interpreter: Data structure tests
+-- ============================================================
+
+interpreterDataStructureTests :: Spec
+interpreterDataStructureTests = do
+    it "creates and accesses arrays" $ do
+        shouldRunOk $ T.unlines
+            [ "func main() : void {"
+            , "    let arr : int[] = [10, 20, 30];"
+            , "    print(arr[0]);"
+            , "    print(arr[1]);"
+            , "    print(arr[2]);"
+            , "}"
+            ]
+
+    it "creates arrays with new" $ do
+        shouldRunOk $ T.unlines
+            [ "func main() : void {"
+            , "    let arr : int[] = new int[3];"
+            , "    arr[0] = 100;"
+            , "    arr[1] = 200;"
+            , "    arr[2] = 300;"
+            , "    print(arr[0]);"
+            , "    print(arr[2]);"
+            , "}"
+            ]
+
+    it "supports array .size" $ do
+        shouldRunOk $ T.unlines
+            [ "func main() : void {"
+            , "    let arr : int[] = [1, 2, 3, 4, 5];"
+            , "    print(arr.size);"
+            , "}"
+            ]
+
+    it "creates and accesses structs" $ do
+        shouldRunOk $ T.unlines
+            [ "struct Point { x : int; y : int; }"
+            , "func main() : void {"
+            , "    let p = Point{10, 20};"
+            , "    print(p.x);"
+            , "    print(p.y);"
+            , "}"
+            ]
+
+    it "supports array of structs" $ do
+        shouldRunOk $ T.unlines
+            [ "struct Person { name : string; age : int; }"
+            , "func main() : void {"
+            , "    let people : Person[2];"
+            , "    people[0] = Person{\"Alice\", 25};"
+            , "    people[1] = Person{\"Bob\", 30};"
+            , "    print(people[0].name);"
+            , "    print(people[1].age);"
+            , "}"
+            ]
+
+-- ============================================================
+-- Interpreter: Integration tests with example programs
+-- ============================================================
+
+interpreterIntegrationTests :: Spec
+interpreterIntegrationTests = do
+    it "runs Example 1: factorial" $ do
+        src <- TIO.readFile "test/inputs/example1_factorial.sl"
+        result <- interpret =<< parseOrFail src
+        result `shouldSatisfy` isRight'
+
+    it "runs Example 2: structs and arrays" $ do
+        src <- TIO.readFile "test/inputs/example2_structs.sl"
+        result <- interpret =<< parseOrFail src
+        result `shouldSatisfy` isRight'
+
+    it "runs Example 3: array operations (reverse)" $ do
+        src <- TIO.readFile "test/inputs/example3_arrays.sl"
+        result <- interpret =<< parseOrFail src
+        result `shouldSatisfy` isRight'
+
+    it "runs Example 4: math and boolean ops" $ do
+        src <- TIO.readFile "test/inputs/example4_math.sl"
+        result <- interpret =<< parseOrFail src
+        result `shouldSatisfy` isRight'
+
+-- ============================================================
+-- Interpreter: Runtime error tests
+-- ============================================================
+
+interpreterErrorTests :: Spec
+interpreterErrorTests = do
+    it "reports error on missing main" $ do
+        shouldRunError
+            "func foo() : void {}"
+            "No 'main' function"
+
+    it "reports error on division by zero" $ do
+        shouldRunError
+            (T.unlines
+                [ "func main() : void {"
+                , "    let x : int = 10 / 0;"
+                , "}"
+                ])
+            "Division by zero"
+
+    it "reports error on array out of bounds" $ do
+        shouldRunError
+            (T.unlines
+                [ "func main() : void {"
+                , "    let arr : int[] = [1, 2, 3];"
+                , "    print(arr[5]);"
+                , "}"
+                ])
+            "out of bounds"
+
+    it "reports error on undefined variable" $ do
+        shouldRunError
+            "func main() : void { print(x); }"
+            "Undefined variable"
+
+    it "reports error on undefined function call" $ do
+        shouldRunError
+            "func main() : void { foo(); }"
+            "Undefined function"
+
+-- ============================================================
+-- Interpreter helper
+-- ============================================================
+
+parseOrFail :: T.Text -> IO Program
+parseOrFail src =
+    case runParser "<test>" src of
+        Left err -> error $ "Parse error: " ++ errorBundlePretty err
+        Right prog -> return prog
+
+isRight' :: Either a b -> Bool
+isRight' (Right _) = True
+isRight' _         = False
